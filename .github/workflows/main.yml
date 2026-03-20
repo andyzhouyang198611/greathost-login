@@ -1,39 +1,49 @@
-name: Greathost-AutoRenew-Runner
+name: Greathost-AutoRenew
 
 on:
   schedule:
-    - cron: '0 4 * * *'  # 每天运行
-  workflow_dispatch:      # 允许手动点运行
+    - cron: '0 4 * * *'  # 每天12时运行一次
+  workflow_dispatch:        # 允许手动运行
 
 jobs:
-  run-task:
+  Auto_renew_greathost:
     runs-on: ubuntu-latest
+    
+    permissions:
+      actions: write
+      contents: write   # 允许修改 README.md 并推送   
+      
     steps:
-      # 1. 【直接用你给的代码】拉取私有仓库到当前根目录
+      # =======================================================
+      # 替换后的代码块：拉取私有仓库
       - name: 拉取私有仓库
         uses: actions/checkout@v4
         with:
-          repository: andyzhouyang198611/greathost-login  # 这里填你那个私有库的名字
-          token: ${{ secrets.REPO_TOKEN }}               # 必须要在当前公开库设置这个 Secret
-          path: .                                        # 拉到根目录，方便后面直接运行
+          repository: andyzhouyang198611/private-scripts-greathost
+          token: ${{ secrets.REPO_TOKEN }}
+          path: .  # 拉到根目录
+      # =======================================================
 
-      # 2. 设置环境（接你之前的逻辑）
+      # 1. 设置 Python 环境
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
+      # 2. 安装 Chrome 浏览器 (Selenium-Wire 需要)
       - name: Install Google Chrome
         run: |
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
 
+      # 3. 安装依赖
+      # 注意：必须安装 selenium-wire, blinker(特定版本防报错), requests
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install selenium==4.18.1 selenium-wire==5.1.0 blinker==1.7.0 requests
 
-      # 3. 运行私有库里的脚本
+      # 4. 运行 Python 脚本
       - name: Run renew script
         env:
           GREATHOST_EMAIL: ${{ secrets.GREATHOST_EMAIL }}
@@ -43,12 +53,29 @@ jobs:
           PROXY_URL: ${{ secrets.PROXY_URL }}
         run: python greathost.py
 
-      # 4. 把更新后的 README 推回私有库
+      # 5. 更新 README 到仓库
       - name: Push README changes
         if: always()
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add README.md
-          git commit -m "docs: update renewal status" || exit 0
+          git commit -m "docs: update renewal status [skip ci]" || exit 0
           git push
+
+      # 6. 上传调试截图 (如果脚本里有 save_screenshot 的话)
+      - name: Upload Error Page
+        if: failure() # 仅在脚本报错失败时执行
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-screenshot
+          path: error_page.html
+          retention-days: 3 # 保存3天
+
+      - name: 🧹 清理旧的工作流运行记录
+        uses: MajorScruffy/delete-old-workflow-runs@v0.3.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          repository: ${{ github.repository }}
+          older-than-seconds: 3600  # 删除1小时前的记录
